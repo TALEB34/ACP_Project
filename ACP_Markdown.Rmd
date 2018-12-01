@@ -1,0 +1,113 @@
+---
+title: "ACP_Project"
+author: "Reda_Seif"
+date: "1 d?cembre 2018"
+output: html_document
+---
+Chargement des librairies
+```{r}
+## loading libraries
+library(ggplot2)
+library(FactoMineR)
+library(factoextra)
+library(pls)
+```
+
+
+Chargement des données
+```{r}
+dataFrame = read.csv("climat.201708.csv", sep=";")
+head(dataFrame)
+```
+
+Supprimer les colonnes avec des modalites non definies (NA,ZERO)
+```{r}
+oldCols = colnames(dataFrame)
+#na_indices =  apply(is.na(dataFrame), 2, all)
+zero_and_na_indices =  apply(is.na(dataFrame) | dataFrame == 0, 2, all)
+dataFrame[,zero_and_na_indices ] <- NULL
+```
+
+```{r}
+oldCols[zero_and_na_indices]
+head(dataFrame)
+```
+Les variables avec des modalités NA.
+```{r}
+colnames(dataFrame[,apply(is.na(dataFrame),2,any)])
+```
+Remplacer toutes les modalités NA par 0 dans les colonnes qui indiquent un nombres de jours(Commencent par NB).
+```{r}
+dataFrame[grep("NB.*",colnames(dataFrame))][is.na(dataFrame[grep("NB.*",colnames(dataFrame))])] <- 0
+
+```
+
+Remplacer les NA dans les colonnes de mesures par la mediane.
+```{r}
+dataFrame[,c("PSTATM", "PMERM" , "RR"   ,  "INST","RRAB" )] = apply(dataFrame[,c("PSTATM", "PMERM" , "RR"   ,  "INST","RRAB" )],2,FUN=function(x){x[is.na(x)] = median(x,na.rm = TRUE); x});
+head(dataFrame[,c("PSTATM", "PMERM" , "RR"   ,  "INST","RRAB" )])
+
+```
+Supprimer toutes les stations qui ont une valeur NA pour la variables FXAB.
+```{r}
+dataFrame = dataFrame[complete.cases(dataFrame),]
+```
+
+On change le type des variables date de chaine de caractères à des valeurs numeriques représentant le nombre de jours ecoulés depuis le 1 Aout 2017.
+```{r}
+dataFrame[,grep(".*DAT",colnames(dataFrame))]= apply(dataFrame[,grep(".*DAT",colnames(dataFrame))],2,
+      FUN=function(x){
+      (as.numeric(as.POSIXct(x,format="%Y-%m-%d %H:%M:%S"))-1501538400)/(3600*24)
+  })
+```
+On remarque que ce traitement de dates a généré des valeurs NA :
+
+```{r}
+colnames(dataFrame)[apply(is.na(dataFrame),2,any)]
+```
+On remplace par la médiane:
+```{r}
+dataFrame$RRDAT[is.na(dataFrame$RRDAT >= 0)] = median(dataFrame$RRDAT[!is.na(dataFrame$RRDAT >= 0)])
+```
+
+
+On supprime la colonne DAT car la variables ne comportent aucunes informations, la meme date pour toutes les stations.
+```{r}
+dataFrame$DAT = NULL
+```
+
+```{r}
+sample(dataFrame)
+```
+On remarque aussi des variables avec des valeurs constantes,qui n'apportent aucunes informations à notre modèle, dont la variables NBTX.
+```{r}
+apply(dataFrame, 2, FUN = function(x){length(unique(x))})
+```
+
+```{r}
+dataFrame$NBTX =NULL
+```
+
+Maintenant qu'on a des données prêtes pour le traitement.
+```{r}
+rownames(dataFrame) = dataFrame$NUM_POSTE
+acp <- PCA(dataFrame[,2:ncol(dataFrame)], ncp = 5, scale.unit = TRUE, graph = TRUE,
+           quanti.sup = grep("FXAB",colnames(dataFrame[,2:ncol(dataFrame)])))
+```
+
+```{r}
+pcr_model = pcr(FXAB~., data=dataFrame[,2:43], scale.unit =TRUE, validation = "CV" )
+```
+
+Brouillon
+
+```{r}
+tar = c(7110,7149,7222,7481,7535,7591,7630,7747,7790)
+train <- dataFrame[ ! rownames(dataFrame) %in% tar, 2:ncol(dataFrame) ]
+test =  dataFrame[ rownames(dataFrame) %in% tar, ! colnames(dataFrame) %in% c("FXAB","NUM_POSTE") ]
+y_test = dataFrame[ rownames(dataFrame) %in% tar, "FXAB"]
+pcr_model = pcr(FXAB~., data = train, scale.unit = True, validation = "CV")
+pcr_pred = predict(pcr_model, test, ncomp = 22)
+mean((pcr_pred-y_test)^2)
+```
+
